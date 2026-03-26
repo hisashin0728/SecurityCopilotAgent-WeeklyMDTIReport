@@ -1,0 +1,2 @@
+# SecurityCopilotAgent-WeeklyMDTIReport
+本レポジトリは Microsoft Defender 脅威インテリジェンス週次レポート日本語版カスタムエージェントを紹介しています
