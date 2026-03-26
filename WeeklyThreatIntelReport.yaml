@@ -1,0 +1,307 @@
+Descriptor:
+  Name: WeeklyThreatIntelReport
+  DisplayName: Weekly Threat Intelligence Report
+  Description: >-
+    Microsoft Threat Intelligence プラグインを用いて過去1週間の脅威情報を収集し、
+    業種・業界でフィルタしたうえで、CVE を伴う攻撃が自社に与える影響を
+    Defender から確認し、CISO 向け HTML レポートをメール送信するエージェント。
+  Settings:
+    - Name: LogicAppSubscriptionId
+      Label: Logic App サブスクリプション ID
+      Description: >-
+        メール送信用 Logic App がデプロイされている
+        Azure サブスクリプション ID を指定してください。
+      HintText: "例: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      SettingType: String
+      Required: true
+    - Name: LogicAppResourceGroup
+      Label: Logic App リソースグループ
+      Description: >-
+        メール送信用 Logic App がデプロイされている
+        Azure リソースグループ名を指定してください。
+      HintText: "例: rg-securitycopilot"
+      SettingType: String
+      Required: true
+    - Name: LogicAppWorkflowName
+      Label: Logic App ワークフロー名
+      Description: >-
+        メール送信用 Logic App のワークフロー名を指定してください。
+      HintText: "例: PluginLogicApp_WeeklyThreatIntelReport"
+      SettingType: String
+      Required: true
+
+AgentDefinitions:
+  - Name: WeeklyThreatIntelReportAgent
+    DisplayName: Weekly Threat Intelligence Report Agent
+    Description: >-
+      週次で Microsoft Threat Intelligence から業界別の最新脅威情報を収集し、
+      CVE を含む攻撃について Defender で自社影響を確認し、
+      CISO 向けの要約と推奨対策を含む包括的な
+      HTML レポートを生成してメールで送信するエージェント。
+    Publisher: Custom
+    Product: Security
+    RequiredSkillsets:
+      - WeeklyThreatIntelReport
+      - ThreatIntelligence.DTI
+    AgentSingleInstanceConstraint: Workspace
+    Settings:
+      - Name: Industry
+        Label: 業種・業界
+        Description: >-
+          Defender 脅威インテリジェンスを絞り込む業種・業界を指定してください。
+          例: Auto, Financial, Energy, Healthcare, Government, Technology,
+          Retail, Manufacturing, Education, Communications
+        HintText: "例: Financial"
+        SettingType: String
+        Required: true
+    Triggers:
+      - Name: WeeklySchedule
+        DefaultPollPeriodSeconds: 604800
+        FetchSkill: ''
+        ProcessSkill: WeeklyThreatIntelReport.GenerateThreatIntelReport
+
+SkillGroups:
+  # ─────────────────────────────────────────────────
+  # Agent Orchestration Skill
+  # ─────────────────────────────────────────────────
+  - Format: Agent
+    Skills:
+      - Name: GenerateThreatIntelReport
+        DisplayName: Generate Threat Intelligence Report
+        Description: >-
+          業種パラメータに基づき Microsoft Threat Intelligence から最新脅威を収集し、
+          CVE を含む攻撃に対する自社影響と推奨対策を含む
+          HTML+CSS レポートを生成しメールで送信するオーケストレーションスキル。
+        Interfaces:
+          - Agent
+        Inputs:
+          - Name: Industry
+            Description: >-
+              脅威情報を絞り込む業種・業界
+              (例: Auto, Financial, Energy, Healthcare, Government)
+            Required: true
+        Settings:
+          Model: gpt-4o
+          Instructions: |-
+            # Mission
+            あなたは Microsoft Threat Intelligence と Microsoft Defender を組み合わせて
+            CISO 向けの週次脅威レポートを作成するエグゼクティブ向け分析エージェントです。
+            指定された業種・業界に関連する最新の脅威情報を収集し、
+            自社に影響する可能性が高いものだけを要約して、構造化された HTML+CSS レポートを生成し、メールで送信します。
+
+            # Workflow
+
+            ## Step 1: MDTI から過去1週間の脅威情報を取得
+            FindThreatIntelligence を以下の方針で呼び出して、過去1週間に公開または更新された
+            Microsoft Threat Intelligence の脅威情報を取得すること。
+            - Scope: articles
+            - Entity: default
+            - Targets: {{Industry}}
+            - CreatedAfter: 過去7日間の日付
+            - SortByRelevance: false
+            取得対象は IOC、アクター、攻撃キャンペーン、脆弱性悪用、TTP を含む脅威情報とする。
+
+            ## Step 2: CISO 向けに重要な脅威を抽出
+            Step 1 の結果から、CISO が優先的に把握すべき脅威を抽出すること。
+            特に以下を重視する:
+            - 業界に直接関係する攻撃キャンペーン
+            - 実際の悪用が観測されている脆弱性
+            - 侵害指標 (IOC) を伴う攻撃
+            - ランサムウェア、認証情報窃取、公開資産侵害、サプライチェーン攻撃
+
+            ## Step 3: CVE の詳細を取得
+            Step 1 と Step 2 の結果に CVE が含まれている場合、
+            GetCvesByIdsDti を呼び出して CVE の概要情報を取得すること。
+            - CveIdList: 抽出した CVE ID 一覧
+            - ResponseType: Summary
+            必要に応じて同じ CVE に対して ResponseType: Component も使用し、
+            影響を受ける技術や製品を把握すること。
+
+            ## Step 4: Defender で自社影響を確認
+            CVE が含まれる場合、GetAssetsImpactedByCve を CVE ごとに呼び出して、
+            自社環境で影響を受けるデバイス、ソフトウェア、露出レベル、推奨更新を取得すること。
+
+            ## Step 5: 推奨対策の生成
+            推奨対策は以下を根拠に生成すること:
+            - MDTI の脅威記事・脅威概要
+            - GetCvesByIdsDti の CVE 概要
+            - GetAssetsImpactedByCve の影響資産情報
+            CISO 向けに、経営上の影響、優先順位、推奨アクションを簡潔にまとめること。
+
+            ## Step 6: 脅威の分類
+            脅威を以下で分類すること:
+            - **重大な脅威**: 実悪用あり、CVE 高深刻度、影響資産あり、または経営影響が大きいもの
+            - **監視すべき脅威**: 現時点の自社影響は限定的だが、業界関連性が高いもの
+
+            ## Step 7: HTML レポートの生成
+            収集・分析したすべてのデータを統合し、以下の構造で
+            メール送信に適した HTML+CSS レポートを生成する。
+
+            **エラーハンドリング**: いずれかのスキル呼び出しが失敗した場合、
+            そのステップをスキップし、取得できたデータのみでレポートを生成すること。
+            使用できるデータ取得手段は、このエージェントの ChildSkills に列挙されたものだけである。
+            ホスト名や IP アドレスにアクセスしたユーザー一覧を取得するような処理には進まないこと。
+            MDTI の記事取得、CVE 取得、Defender の資産影響確認の範囲で完結すること。
+
+            # Output — HTML レポート仕様
+
+            **メール互換性の要件** (最優先):
+            - CSS は全てインラインスタイル (style 属性) で記述すること。
+              メールクライアントは <style> タグを無視する場合が多いため、
+              全ての要素に直接 style="..." を適用する。
+            - <table> ベースのレイアウトを使用すること (flexbox/grid は不可)。
+            - 全体を max-width: 680px; margin: 0 auto; の中央寄せテーブルで囲む。
+            - 画像は使用せず、テキストと背景色のみで視覚的効果を出す。
+            - position, float は使用しない。
+            - 日本語で出力すること。
+
+            ## HTML レポート構造
+
+            ### ヘッダー
+            - タイトル: 「Microsoft Defender 脅威インテリジェンスレポート」
+            - サブタイトル: 対象業種、集計期間 (過去1週間)、生成日時を表示
+            - 生成日時
+
+            ### セクション1: エグゼクティブサマリー
+            - 過去1週間の主要脅威件数
+            - 重大な脅威件数
+            - 自社へ影響する CVE 件数
+            - 経営層向けの要点 3 行以内
+
+            ### セクション2: 最新の脅威の概要テーブル
+            以下の列を含むテーブルを作成:
+            | 脅威名/アクター/キャンペーン | CVE (詳細へのハイパーリンク付き) | 自社影響資産 | 脅威の概要説明 |
+            - CVE 列には https://www.cve.org/CVERecord?id=CVE-XXXX-XXXX 形式のリンクを付与
+            - 自社影響資産列にはデバイス名、ソフトウェア名、露出レベル、推奨更新を含める
+
+            ### セクション3: 重大な脅威の強調表示
+            重大と判断された脅威を視覚的に目立つ形式で表示:
+            - 赤またはオレンジの左ボーダー付きカード形式
+            - 各カードに: 脅威名、重大と判断された理由、業界関連性、CVE 詳細、
+              自社影響資産、推奨対策
+            - 推奨対策は緑のハイライトで視覚的に強調
+            - CVSS スコアに応じた色分け (Critical: #D13438, High: #FF8C00,
+              Medium: #FFB900, Low: #107C10)
+
+            ### セクション4: 監視すべき脅威
+            別セクションとして設け、以下を含める:
+            - 脅威のリスト (テーブル形式)
+            - 分類理由 (なぜ継続監視としたか)
+            - 関連する対策
+            - 必要に応じて脆弱なデバイスのリスト
+              (デバイス名にはポータルへのリンクを含める:
+               https://security.microsoft.com/machines/デバイスID)
+
+            ### セクション5: CISO 向け推奨事項
+            - 今週最優先で対処すべき 3 項目
+            - 経営層に共有すべきリスク
+            - SOC / IT 運用 / 脆弱性管理チームへの具体的依頼事項
+
+            ### フッター
+            - 「Microsoft Copilot for Security によって生成されました。」
+
+            ## CSS スタイル要件 (メール対応)
+            - フォント: 'メイリオ', Meiryo, 'Segoe UI', sans-serif
+            - 全体の背景色: #f5f5f5、コンテンツ背景: #ffffff
+            - プライマリカラー: #0078D4 (Microsoft Blue)
+            - Severity 配色:
+              Critical: #D13438, High: #FF8C00, Medium: #FFB900, Low: #107C10
+            - テーブル: ゼブラストライプ (偶数行 #f9f9f9)、border-collapse: collapse
+            - 全体幅: max-width 680px (メール表示に最適化)
+            - font-size: 本文 14px、見出し 18-22px、テーブル 13px
+            - line-height: 1.6
+            - パディング: セクション間 20px、セル内 8px 12px
+            - 全スタイルをインライン (style 属性) で適用すること
+
+            ## Step 8: メール送信
+            生成した HTML 全文を SendThreatReportEmail の ReportHtml パラメータに渡して送信する。
+
+            - HTML の生成が完了したら、必ずそのまま直ちに SendThreatReportEmail を呼び出すこと。
+            - レポート本文や「次のステップ」だけを返して終了してはならない。
+            - 最終応答は SendThreatReportEmail の呼び出し後にのみ返すこと。
+            - SendThreatReportEmail が失敗した場合は、失敗した旨と理由を返すこと。
+
+            # Final Output
+            メール送信完了のステータスメッセージを返す。
+            送信したレポートの概要（脅威数、重大な脅威のハイライト）を含める。
+            「次のステップ」や「これからメール送信します」のような途中経過では終了しないこと。
+
+        ChildSkills:
+          - FindThreatIntelligence
+          - GetCvesByIdsDti
+          - GetAssetsImpactedByCve
+          - SendThreatReportEmail
+
+  # ─────────────────────────────────────────────────
+  # KQL Skills — Defender Advanced Hunting
+  # ─────────────────────────────────────────────────
+  - Format: KQL
+    Skills:
+      - Name: GetAssetsImpactedByCve
+        DisplayName: Get Assets Impacted By CVE
+        Description: >-
+          指定した CVE に対して自社環境で影響を受けるデバイス、ソフトウェア、
+          露出レベル、推奨更新を取得する。
+        Inputs:
+          - Name: CveId
+            Description: 調査対象の CVE ID
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceTvmSoftwareVulnerabilities
+            | where CveId == "{{CveId}}"
+            | join kind=leftouter (
+                DeviceTvmSoftwareVulnerabilitiesKB
+                | where CveId == "{{CveId}}"
+                | project CveId, CvssScore, IsExploitAvailable,
+                          VulnerabilityDescription, PublishedDate, AffectedSoftware,
+                          VulnerabilitySeverityLevel
+            ) on CveId
+            | join kind=leftouter (
+                DeviceInfo
+                | where Timestamp > ago(7d)
+                | summarize arg_max(Timestamp, *) by DeviceId
+                | project DeviceId, ExposureLevel, IsInternetFacing, AssetValue,
+                          SensorHealthState, OnboardingStatus
+            ) on DeviceId
+            | project
+                CveId,
+                DeviceId,
+                DeviceName,
+                SoftwareVendor,
+                SoftwareName,
+                SoftwareVersion,
+                RecommendedSecurityUpdate,
+                CvssScore,
+                IsExploitAvailable,
+                VulnerabilitySeverityLevel,
+                VulnerabilityDescription,
+                PublishedDate,
+                ExposureLevel,
+                IsInternetFacing,
+                AssetValue,
+                SensorHealthState,
+                OnboardingStatus
+            | top 50 by CvssScore desc
+
+  # ─────────────────────────────────────────────────
+  # LogicApp Skill — Email Sending
+  # ─────────────────────────────────────────────────
+  - Format: LogicApp
+    Skills:
+      - Name: SendThreatReportEmail
+        DisplayName: Send Threat Report Email
+        Description: >-
+          生成された脅威インテリジェンス HTML レポートを
+          指定メールアドレスに送信する。
+          Logic App 経由で Office 365 メールを発送する。
+        Inputs:
+          - Name: ReportHtml
+            Description: 送信する HTML レポートの全文
+            Required: true
+        Settings:
+          SubscriptionId: "{{LogicAppSubscriptionId}}"
+          ResourceGroup: "{{LogicAppResourceGroup}}"
+          WorkflowName: "{{LogicAppWorkflowName}}"
+          TriggerName: manual
