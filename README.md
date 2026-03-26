@@ -2,6 +2,12 @@
 
 > Microsoft Threat Intelligence と Microsoft Defender を組み合わせて、過去1週間に公開・更新された脅威情報を業界別に整理し、CVE を伴う攻撃が自社環境に与える影響を評価して、CISO 向け HTML レポートをメール送信する Security Copilot Agent ソリューション。
 
+## メールイメージ
+
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/74500277-7cd8-43da-bde4-4d74f19cdba7" />
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/167bd0f2-18ae-4888-a4a3-731505646f05" />
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/226aedf1-1cbf-4585-9b1b-015f0445b1b8" />
+
 ## 概要
 
 `WeeklyThreatIntelReport` は、Microsoft Security Copilot の Standard Agent として動作し、以下を自動化します。
